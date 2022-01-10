@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: 
+  name: k8s-bigip-ctlr-test
+  namespace: kube-system
+spec: 
+  replicas: 1
+  selector: 
+    matchLabels: 
+      app: k8s-bigip-ctlr-test
+  template: 
+    metadata: 
+      labels: 
+        app: k8s-bigip-ctlr-test
+    spec: 
+      containers: 
+        - 
+          args: 
+            - "--bigip-username=$(BIGIP_USERNAME)"
+            - "--bigip-password=$(BIGIP_PASSWORD)"
+            - "--bigip-url=10.0.1.4"
+            - "--bigip-partition=kubernetes"
+            - "--pool-member-type=cluster"
+            - "--log-level=DEBUG"
+            - "--insecure=true"
+            - "--custom-resource-mode=true"
+            - "--as3-validation=true"
+            - "--log-as3-response=true"
+            - "--ipam=true"
+            - "--gtm-bigip-url=10.0.1.4"
+            - "--gtm-bigip-username=$(BIGIP_USERNAME)"
+            - "--gtm-bigip-password=$(BIGIP_PASSWORD)"
+            - "--disable-teems=true"
+          command: 
+            - /app/bin/k8s-bigip-ctlr
+          env: 
+            - 
+              name: BIGIP_USERNAME
+              valueFrom: 
+                secretKeyRef: 
+                  key: username
+                  name: bigip-login
+            - 
+              name: BIGIP_PASSWORD
+              valueFrom: 
+                secretKeyRef: 
+                  key: password
+                  name: bigip-login
+          image: "f5networks/k8s-bigip-ctlr:2.6.1"
+          imagePullPolicy: Always
+          name: f5-server
+      serviceAccountName: k8s-bigip-ctlr
+
