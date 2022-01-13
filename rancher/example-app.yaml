@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: f5-test
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: f5-hello-web-deployment
+  namespace: f5-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: f5-hello-web-deployment
+  template:
+    metadata:
+      labels:
+        app: f5-hello-web-deployment
+    spec:
+      containers:
+      - env:
+        - name: service_name
+          value: f5-demo
+        image: f5devcentral/f5-hello-world:latest
+        imagePullPolicy: IfNotPresent
+        name: f5-hello-web-deployment
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: f5-demo
+  namespace: f5-test
+spec:
+  ports:
+  - name: f5-hello-world-service-port
+    port: 8080
+    protocol: TCP
+    targetPort: 8080
+  type: ClusterIP
+  selector:
+    app: f5-hello-web-deployment
+---
+apiVersion: "cis.f5.com/v1"
+kind: VirtualServer
+metadata:
+ name: f5-demo-vs
+ namespace: f5-test
+ labels:
+   f5cr: "true"
+spec:
+ host: hello-demo-test.f5-test.k8s.customer.com
+ ipamLabel: "iEng-testing"
+ virtualServerName: "hello-demo-test"
+ pools:
+ - path: /
+   service: f5-demo
+   servicePort: 8080
+   monitor:
+    type: http
+    send: "GET /rn"
+    recv: ""
+    interval: 10
+    timeout: 30

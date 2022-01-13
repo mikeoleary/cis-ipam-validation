@@ -1,0 +1,634 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bigip-login
+  namespace: kube-system
+data:
+  username: YWRtaW4=
+  password: RGVmYXVsdFBhc3MxMjM0NSE=
+---
+# for reference only
+# Should be changed as per your cluster requirements
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: k8s-bigip-ctlr-clusterrole
+rules:
+  - apiGroups: ["", "extensions", "networking.k8s.io"]
+    resources: ["nodes", "services", "endpoints", "namespaces", "ingresses", "pods", "ingressclasses", "policies"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["", "extensions", "networking.k8s.io"]
+    resources: ["configmaps", "events", "ingresses/status", "services/status"]
+    verbs: ["get", "list", "watch", "update", "create", "patch"]
+  - apiGroups: ["cis.f5.com"]
+    resources: ["virtualservers","virtualservers/status", "tlsprofiles", "transportservers", "transportservers/status", "ingresslinks", "ingresslinks/status", "externaldnss", "policies"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["fic.f5.com"]
+    resources: ["ipams", "ipams/status"]
+    verbs: ["get", "list", "watch", "update", "create", "patch", "delete"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch", "update", "create", "patch"]
+  - apiGroups: ["", "extensions"]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: k8s-bigip-ctlr-clusterrole-binding
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: k8s-bigip-ctlr-clusterrole
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: k8s-bigip-ctlr
+    namespace: kube-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-bigip-ctlr
+  namespace: kube-system
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-local
+  namespace: kube-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    name: f5-ipam-controller
+  name: f5-ipam-controller
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: f5-ipam-controller
+  template:
+    metadata:
+      labels:
+        app: f5-ipam-controller
+    spec:
+      containers:
+        - args:
+            - --orchestration
+            - kubernetes
+            - --ip-range
+            - '{"Core-uat":"10.112.179.128-10.112.179.159","Map-uat":"10.112.179.160-10.112.179.191","Generic-uat":"10.112.179.192-10.112.179.223","iEng-testing":"10.112.179.224-10.112.179.254"}'
+            - --log-level
+            - DEBUG
+          command:
+            - /app/bin/f5-ipam-controller
+          image: f5networks/f5-ipam-controller:0.1.5
+          imagePullPolicy: IfNotPresent
+          name: f5-ipam-controller
+          terminationMessagePath: /dev/termination-log
+          volumeMounts:
+            - mountPath: /app/ipamdb
+              name: samplevol
+      securityContext:
+        fsGroup: 1200
+        runAsGroup: 1200
+        runAsUser: 1200
+      serviceAccount: k8s-bigip-ctlr
+      serviceAccountName: k8s-bigip-ctlr
+      volumes:
+        - name: samplevol
+          persistentVolumeClaim:
+            claimName: pvc-local
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: virtualservers.cis.f5.com
+spec:
+  group: cis.f5.com
+  names:
+    kind: VirtualServer
+    plural: virtualservers
+    shortNames:
+      - vs
+    singular: virtualserver
+  scope: Namespaced
+  versions:
+    -
+      name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                host:
+                  type: string
+                  pattern: '^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$'
+                httpTraffic:
+                  type: string
+                ipamLabel:
+                  type: string
+                snat:
+                  type: string
+                tlsProfileName:
+                  type: string
+                rewriteAppRoot:
+                  type: string
+                  pattern: '^\/([A-z0-9-_+]+\/)*([A-z0-9]+\/?)*$'
+                waf:
+                  type: string
+                  pattern: '^\/([A-z0-9-_+]+\/)*([A-z0-9]+\/?)*$'
+                allowVlans:
+                  items:
+                    type: string
+                    pattern: '^\/([A-z0-9-_+]+\/)*([A-z0-9-_]+\/?)*$'
+                  type: array
+                iRules:
+                  type: array
+                  items:
+                    type: string
+                serviceAddress:
+                  type: array
+                  maxItems: 1
+                  items:
+                    type: object
+                    properties:
+                      arpEnabled:
+                        type: boolean
+                      icmpEcho:
+                        type: string
+                        enum: [enable, disable, selective]
+                      routeAdvertisement:
+                        type: string
+                        enum: [enable, disable, selective, always, any, all]
+                      spanningEnabled:
+                        type: boolean
+                      trafficGroup:
+                        type: string
+                        pattern: '^\/([A-z0-9-_+]+\/)*([A-z0-9]+\/?)*$'
+                pools:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      path:
+                        type: string
+                        pattern: '^\/([A-z0-9-_+]+\/)*([A-z0-9]+\/?)*$'
+                      service:
+                        type: string
+                        pattern: '^([A-z0-9-_+])*([A-z0-9])$'
+                      nodeMemberLabel:
+                        type: string
+                        pattern: '^[a-zA-Z0-9][-A-Za-z0-9_.]{0,61}[a-zA-Z0-9]=[a-zA-Z0-9][-A-Za-z0-9_.]{0,61}[a-zA-Z0-9]$'
+                      servicePort:
+                        type: integer
+                        minimum: 1
+                        maximum: 65535
+                      rewrite:
+                        type: string
+                        pattern: '^\/([A-z0-9-_+]+\/)*([A-z0-9]+\/?)*$'
+                      monitor:
+                        type: object
+                        properties:
+                          type:
+                            type: string
+                            enum: [http, https]
+                          send:
+                            type: string
+                          recv:
+                            type: string
+                          interval:
+                            type: integer
+                          timeout:
+                            type: integer
+                        required:
+                          - type
+                          - send
+                          - interval
+                virtualServerAddress:
+                  type: string
+                  pattern: '^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$'
+                virtualServerName:
+                  type: string
+                  pattern: '^([A-z0-9-_+])*([A-z0-9])$'
+                virtualServerHTTPPort:
+                  type: integer
+                  minimum: 1
+                  maximum: 65535
+                virtualServerHTTPSPort:
+                  type: integer
+                  minimum: 1
+                  maximum: 65535
+            status:
+              type: object
+              properties:
+                vsAddress:
+                  type: string
+      additionalPrinterColumns:
+        - name: host
+          type: string
+          description: hostname
+          jsonPath: .spec.host
+        - name: tlsProfileName
+          type: string
+          description: TLS Profile attached
+          jsonPath: .spec.tlsProfileName
+        - name: httpTraffic
+          type: string
+          description: Http Traffic Termination
+          jsonPath: .spec.httpTraffic
+        - name: IPAddress
+          type: string
+          description: IP address of virtualServer
+          jsonPath: .spec.virtualServerAddress
+        - name: ipamLabel
+          type: string
+          description: ipamLabel for virtual server
+          jsonPath: .spec.ipamLabel
+        - name: IPAMVSAddress
+          type: string
+          description: IP address of virtualServer
+          jsonPath: .status.vsAddress
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+          
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: tlsprofiles.cis.f5.com
+spec:
+  group: cis.f5.com
+  names:
+    kind: TLSProfile
+    plural: tlsprofiles
+    shortNames:
+      - tls
+    singular: tlsprofile
+  scope: Namespaced
+  versions:
+    -
+      name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                hosts:
+                  type: array
+                  items:
+                    type: string
+                    pattern: '^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$'
+                tls:
+                  type: object
+                  properties:
+                    termination:
+                      type: string
+                      enum: [edge, reencrypt, passthrough]
+                    clientSSL:
+                      type: string
+                    serverSSL:
+                      type: string
+                    reference:
+                      type: string
+                  required:
+                    - termination
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: transportservers.cis.f5.com
+spec:
+  group: cis.f5.com
+  names:
+    kind: TransportServer
+    plural: transportservers
+    shortNames:
+      - ts
+    singular: transportserver
+  scope: Namespaced
+  versions:
+    -
+      name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                virtualServerAddress:
+                  type: string
+                  pattern: '^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$'
+                virtualServerPort:
+                  type: integer
+                  minimum: 1
+                  maximum: 65535
+                virtualServerName:
+                  type: string
+                  pattern: '^([A-z0-9-_+])*([A-z0-9])$'
+                mode: 
+                  type: string
+                  enum: [standard, performance]
+                type:
+                  type: string
+                  enum: [tcp, udp]
+                snat:
+                  type: string
+                allowVlans:
+                  items:
+                    type: string
+                    pattern: '^\/([A-z0-9-_+]+\/)*([A-z0-9-_]+\/?)*$'
+                  type: array
+                iRules:
+                  type: array
+                  items:
+                    type: string
+                ipamLabel:
+                  type: string
+                serviceAddress:
+                  type: array
+                  maxItems: 1
+                  items:
+                    type: object
+                    properties:
+                      arpEnabled:
+                        type: boolean
+                      icmpEcho:
+                        type: string
+                        enum: [enable, disable, selective]
+                      routeAdvertisement:
+                        type: string
+                        enum: [enable, disable, selective, always, any, all]
+                      spanningEnabled:
+                        type: boolean
+                      trafficGroup:
+                        type: string
+                        pattern: '^\/([A-z0-9-_+]+\/)*([A-z0-9]+\/?)*$'
+                pool:
+                  type: object
+                  properties:
+                    service:
+                      type: string
+                      pattern: '^([A-z0-9-_+])*([A-z0-9])$'
+                    servicePort:
+                      type: integer
+                      minimum: 1
+                      maximum: 65535
+                    monitor:
+                      type: object
+                      properties:
+                        type:
+                          type: string
+                          enum: [tcp, udp]
+                        interval:
+                          type: integer
+                        timeout:
+                          type: integer
+                      required:
+                        - type
+                        - interval
+                  required:
+                      - service
+                      - servicePort
+              required:
+                - virtualServerPort
+                - pool
+      additionalPrinterColumns:
+      - name: virtualServerAddress
+        type: string
+        description: IP address of virtualServer
+        jsonPath: .spec.virtualServerAddress
+      - name: virtualServerPort
+        type: integer
+        description: Port of virtualServer
+        jsonPath: .spec.virtualServerPort
+      - name: pool
+        type: string
+        description: Name of service
+        jsonPath: .spec.pool.service
+      - name: poolPort
+        type: string
+        description: Port of service
+        jsonPath: .spec.pool.servicePort
+      - name: Age
+        type: date
+        jsonPath: .metadata.creationTimestamp
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: externaldnss.cis.f5.com
+spec:
+  group: cis.f5.com
+  names:
+    kind: ExternalDNS
+    plural: externaldnss
+    shortNames:
+      - edns
+    singular: externaldns
+  scope: Namespaced
+  versions:
+    -
+      name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                domainName:
+                  type: string
+                  pattern: '^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$'
+                dnsRecordType:
+                  type: string
+                  pattern: 'A'
+                loadBalanceMethod:
+                  type: string
+                pools:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      dataServerName:
+                        type: string
+                      dnsRecordType:
+                        type: string
+                        pattern: 'A'
+                      loadBalanceMethod:
+                        type: string
+                      monitor:
+                        type: object
+                        properties:
+                          type:
+                            type: string
+                            enum: [http, https]
+                          send:
+                            type: string
+                          recv:
+                            type: string
+                          interval:
+                            type: integer
+                          timeout:
+                            type: integer
+                        required:
+                          - type
+                          - send
+                          - interval
+                    required:
+                      - dataServerName
+              required:
+                - domainName
+      additionalPrinterColumns:
+        - name: domainName
+          type: string
+          description: Domain name of virtual server resource
+          jsonPath: .spec.domainName
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: ingresslinks.cis.f5.com
+spec:
+  group: cis.f5.com
+  names:
+    kind: IngressLink
+    shortNames:
+      - il
+    singular: ingresslink
+    plural: ingresslinks
+  scope: Namespaced
+  versions:
+    -
+      name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                virtualServerAddress:
+                  type: string
+                  pattern: '^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$'
+                ipamLabel:
+                  type: string
+                iRules:
+                  type: array
+                  items:
+                    type: string
+                selector:
+                  properties:
+                    matchLabels:
+                      additionalProperties:
+                        type: string
+                      type: object
+                  type: object
+            status:
+              type: object
+              properties:
+                vsAddress:
+                  type: string
+      additionalPrinterColumns:
+        - name: IPAMVSAddress
+          type: string
+          description: IP address of virtualServer
+          jsonPath: .status.vsAddress
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: { }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: 
+  name: k8s-bigip-ctlr-test
+  namespace: kube-system
+spec: 
+  replicas: 1
+  selector: 
+    matchLabels: 
+      app: k8s-bigip-ctlr-test
+  template: 
+    metadata: 
+      labels: 
+        app: k8s-bigip-ctlr-test
+    spec: 
+      containers: 
+        - 
+          args: 
+            - "--bigip-username=$(BIGIP_USERNAME)"
+            - "--bigip-password=$(BIGIP_PASSWORD)"
+            - "--bigip-url=10.0.1.4"
+            - "--bigip-partition=kubernetes"
+            - "--pool-member-type=cluster"
+            - "--log-level=DEBUG"
+            - "--insecure=true"
+            - "--custom-resource-mode=true"
+            - "--as3-validation=true"
+            - "--log-as3-response=true"
+            - "--ipam=true"
+            - "--gtm-bigip-url=10.0.1.4"
+            - "--gtm-bigip-username=$(BIGIP_USERNAME)"
+            - "--gtm-bigip-password=$(BIGIP_PASSWORD)"
+            - "--disable-teems=true"
+          command: 
+            - /app/bin/k8s-bigip-ctlr
+          env: 
+            - 
+              name: BIGIP_USERNAME
+              valueFrom: 
+                secretKeyRef: 
+                  key: username
+                  name: bigip-login
+            - 
+              name: BIGIP_PASSWORD
+              valueFrom: 
+                secretKeyRef: 
+                  key: password
+                  name: bigip-login
+          image: "f5networks/k8s-bigip-ctlr:2.6.1"
+          imagePullPolicy: Always
+          name: f5-server
+      serviceAccountName: k8s-bigip-ctlr
+
+
+
+      
