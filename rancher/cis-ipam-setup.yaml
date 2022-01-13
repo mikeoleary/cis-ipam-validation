@@ -596,7 +596,7 @@ spec:
           args: 
             - "--bigip-username=$(BIGIP_USERNAME)"
             - "--bigip-password=$(BIGIP_PASSWORD)"
-            - "--bigip-url=10.0.1.4"
+            - "--bigip-url=10.1.0.4"
             - "--bigip-partition=kubernetes"
             - "--pool-member-type=cluster"
             - "--log-level=DEBUG"
@@ -605,7 +605,7 @@ spec:
             - "--as3-validation=true"
             - "--log-as3-response=true"
             - "--ipam=true"
-            - "--gtm-bigip-url=10.0.1.4"
+            - "--gtm-bigip-url=10.1.0.4"
             - "--gtm-bigip-username=$(BIGIP_USERNAME)"
             - "--gtm-bigip-password=$(BIGIP_PASSWORD)"
             - "--disable-teems=true"
@@ -628,7 +628,3 @@ spec:
           imagePullPolicy: Always
           name: f5-server
       serviceAccountName: k8s-bigip-ctlr
-
-
-
-      
