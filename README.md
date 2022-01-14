@@ -7,7 +7,7 @@ This repo is simply for troubleshooting CIS and IPAM controller. It is not inten
 ````
 git clone https://github.com/mikeoleary/cis-ipam-validation
 ````
-2. Create an Azure app registration (eg, ```az ad sp create-for-rbac```) and put the details of the app id, secret, subscription and tenant in the file ```rancher/azure/terraform.tfvars```
+2. Create an Azure app registration (eg, ```az ad sp create-for-rbac```) and put the details of the **app id, secret, subscription and tenant** in the file ```rancher/azure/terraform.tfvars```. Optionally edit the **prefix** variable also.
 
 3. Change directory to our deployment directory and run terraform to deploy our environment:
 ````
